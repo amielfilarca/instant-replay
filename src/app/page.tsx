@@ -85,7 +85,7 @@ export default function Home() {
       if (bufferedChunks.length === 0) return;
 
       let totalDuration = 0;
-      let chunksToKeep: Blob[] = [];
+      const chunksToKeep: Blob[] = [];
 
       for (let i = bufferedChunks.length - 1; i >= 0; i--) {
         const chunk = bufferedChunks[i];
