@@ -1,103 +1,172 @@
-import Image from "next/image";
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { Settings } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [bufferDuration, setBufferDuration] = useState(15); // Default buffer duration
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [bufferedChunks, setBufferedChunks] = useState<Blob[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  useEffect(() => {
+    const getCameraStream = async () => {
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+        setStream(videoStream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = videoStream;
+        }
+      } catch (error) {
+        console.error("Error accessing camera:", error);
+      }
+    };
+
+    getCameraStream();
+
+    return () => {
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!stream) return;
+
+    const startRecording = () => {
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "video/webm;codecs=vp9",
+      });
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          setBufferedChunks((prev) => [...prev, event.data]);
+        }
+      };
+      recorder.onstop = () => {
+        console.log("Recording stopped");
+      };
+      recorder.start();
+      setRecording(true);
+      console.log("Recording started");
+    };
+
+    const stopRecording = () => {
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state === "recording"
+      ) {
+        mediaRecorderRef.current.stop();
+        setRecording(false);
+      }
+    };
+
+    if (recording) {
+      startRecording();
+    } else {
+      stopRecording();
+    }
+
+    return () => {
+      stopRecording();
+    };
+  }, [recording, stream]);
+
+  useEffect(() => {
+    // Trim buffer based on duration
+    const trimBuffer = () => {
+      if (bufferedChunks.length === 0) return;
+
+      let totalDuration = 0;
+      let chunksToKeep: Blob[] = [];
+
+      for (let i = bufferedChunks.length - 1; i >= 0; i--) {
+        const chunk = bufferedChunks[i];
+        totalDuration += chunk.size; // Approximation: chunk.size as proxy for duration
+        if (totalDuration <= bufferDuration * 100000) {
+          // Approximation factor
+          chunksToKeep.unshift(chunk);
+        } else {
+          break;
+        }
+      }
+      setBufferedChunks(chunksToKeep);
+    };
+
+    trimBuffer();
+  }, [bufferDuration, bufferedChunks]);
+
+  const handleSaveRecording = () => {
+    if (bufferedChunks.length === 0) return;
+
+    const blob = new Blob(bufferedChunks, { type: "video/webm" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const filename = new Date().toISOString().replace(/:/g, "-");
+    a.download = `replay-${filename}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const toggleSettings = () => {
+    setSettingsOpen(!settingsOpen);
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-secondary">
+      <h1 className="text-2xl font-bold mb-4 text-primary">Instant Replay</h1>
+
+      <video
+        ref={videoRef}
+        className="w-full max-w-2xl rounded-lg shadow-md"
+        autoPlay
+        muted
+      />
+
+      <div className="flex space-x-4 mt-4">
+        <Button onClick={() => setRecording(!recording)} disabled={!stream}>
+          {recording ? "Stop Recording" : "Start Recording"}
+        </Button>
+        <Button
+          onClick={handleSaveRecording}
+          disabled={bufferedChunks.length === 0}
+        >
+          Save Recording
+        </Button>
+        <Button variant="ghost" onClick={toggleSettings}>
+          <Settings className="h-5 w-5" />
+        </Button>
+      </div>
+
+      {settingsOpen && (
+        <div className="mt-4 p-4 rounded-lg shadow-md bg-card w-full max-w-md">
+          <h2 className="text-lg font-semibold mb-2">Settings</h2>
+          <div className="flex items-center space-x-2">
+            <label htmlFor="bufferDuration" className="text-sm font-medium">
+              Buffer Duration (seconds):
+            </label>
+            <Slider
+              id="bufferDuration"
+              defaultValue={[bufferDuration]}
+              max={30}
+              min={5}
+              step={1}
+              onValueChange={(value) => setBufferDuration(value[0])}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            <span>{bufferDuration}</span>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
     </div>
   );
 }
